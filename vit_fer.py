@@ -2,21 +2,24 @@ import os
 import numpy as np
 import pandas as pd
 import pickle
+import torch
 import torch.nn as nn
 from matplotlib import pyplot as plt
 import seaborn as sns
 from sklearn.metrics import confusion_matrix
 
 from datasets import Dataset, Features, ClassLabel, Array3D
-from transformers import (
-    ViTFeatureExtractor, ViTModel, TrainingArguments, Trainer, 
-    SequenceClassifierOutput
-)
+from transformers import ViTImageProcessor, ViTModel, TrainingArguments, Trainer
+from transformers.modeling_outputs import SequenceClassifierOutput
 from evaluate import load
 
 
+# Detect device: mps (Apple GPU) → cuda (NVIDIA) → cpu (fallback)
+DEVICE = torch.device("mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu")
+print(f"Using device: {DEVICE}")
+
 # Constants
-DATA_PATH = "/fer2013/fer2013.csv"
+DATA_PATH = "./fer2013/fer2013.csv"
 STRING_LABELS = ['Anger', 'Disgust', 'Fear', 'Happiness', 'Sadness', 'Surprise', 'Neutral']
 MODEL_NAME = 'google/vit-base-patch16-224-in21k'
 NUM_LABELS = len(STRING_LABELS)
@@ -78,19 +81,26 @@ class CNNFeatureExtractorImproved(nn.Module):
 class ViTForImageClassificationWithCNN(nn.Module):
     def __init__(self, num_labels=NUM_LABELS):
         super().__init__()
-        self.cnn = CNNFeatureExtractorImproved()
+        self.cnn = CNNFeatureExtractorImproved(input_channels=3, output_channels=3)
         self.vit = ViTModel.from_pretrained(MODEL_NAME)
         self.dropout = nn.Dropout(0.1)
         self.classifier = nn.Linear(self.vit.config.hidden_size, num_labels)
+        self.num_labels = num_labels
 
-    def forward(self, pixel_values, labels=None):
+    def forward(self, pixel_values=None, labels=None, **kwargs):
+        if pixel_values is None:
+            raise ValueError("pixel_values must be provided")
+        pixel_values = pixel_values.to(DEVICE)
         cnn_features = self.cnn(pixel_values)
         outputs = self.vit(pixel_values=cnn_features)
         logits = self.classifier(self.dropout(outputs.last_hidden_state[:, 0]))
         loss = None
         if labels is not None:
+            labels = labels.to(DEVICE)
             loss = nn.CrossEntropyLoss()(logits.view(-1, self.classifier.out_features), labels.view(-1))
         return SequenceClassifierOutput(loss=loss, logits=logits, hidden_states=outputs.hidden_states, attentions=outputs.attentions)
+
+
 
 
 def compute_metrics(eval_pred):
@@ -109,7 +119,7 @@ def plot_confusion_matrix(y_true, y_pred):
 
 
 def main():
-    feature_extractor = ViTFeatureExtractor.from_pretrained(MODEL_NAME)
+    feature_extractor = ViTImageProcessor.from_pretrained(MODEL_NAME)
     df = pd.read_csv(DATA_PATH)
 
     train_df = prepare_fer_data(df[df['Usage'] == 'Training'])
@@ -122,28 +132,41 @@ def main():
 
     features = Features({
         'label': ClassLabel(names=STRING_LABELS),
-        'img': Array3D("int64", (3, 48, 48)),
-        'pixel_values': Array3D("float32", (3, 224, 224)),
+        'img': Array3D(dtype="int64", shape=(3, 48, 48)),
+        'pixel_values': Array3D(dtype="float32", shape=(3, 224, 224)),
     })
 
+    # Preprocess and save datasets (only needed once)
     for name, ds in [('train', train_ds), ('val', val_ds), ('test', test_ds)]:
-        preprocessed_ds = ds.map(lambda x: preprocess_images(x, feature_extractor), batched=True, features=features)
-        with open(f'preprocessed_{name}_ds.pickle', 'wb') as handle:
-            pickle.dump(preprocessed_ds, handle, protocol=pickle.HIGHEST_PROTOCOL)
+        if not os.path.exists(f'preprocessed_{name}_ds.pickle'):
+            print(f"Preprocessing {name} dataset...")
+            preprocessed_ds = ds.map(lambda x: preprocess_images(x, feature_extractor), batched=True, features=features)
+            with open(f'preprocessed_{name}_ds.pickle', 'wb') as handle:
+                pickle.dump(preprocessed_ds, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
-    model = ViTForImageClassificationWithCNN()
+    # Load preprocessed datasets from pickle
+    with open('preprocessed_train_ds.pickle', 'rb') as handle:
+        train_ds = pickle.load(handle)
+    with open('preprocessed_val_ds.pickle', 'rb') as handle:
+        val_ds = pickle.load(handle)
+    with open('preprocessed_test_ds.pickle', 'rb') as handle:
+        test_ds = pickle.load(handle)
+
+    model = ViTForImageClassificationWithCNN().to(DEVICE)
+
     training_args = TrainingArguments(
         "vit-fer",
-        evaluation_strategy="epoch",
+        eval_strategy="epoch",
         save_strategy="epoch",
         learning_rate=2e-5,
-        per_device_train_batch_size=16,
-        per_device_eval_batch_size=16,
+        per_device_train_batch_size=8,
+        per_device_eval_batch_size=8,
         num_train_epochs=6,
         weight_decay=0.01,
         load_best_model_at_end=True,
         metric_for_best_model=METRIC_NAME,
         logging_dir='logs',
+        dataloader_pin_memory=False,  # Add this to suppress MPS warning
     )
 
     os.environ["WANDB_DISABLED"] = "true"
@@ -157,9 +180,18 @@ def main():
 
     trainer.train()
     outputs = trainer.predict(test_ds)
-    plot_confusion_matrix(outputs.label_ids, outputs.predictions.argmax(1))
+    y_true = outputs.label_ids
+    y_pred = outputs.predictions.argmax(1)
+    plot_confusion_matrix(y_true, y_pred)
     trainer.save_model("model")
 
 
 if __name__ == "__main__":
+    import time
+    start_time = time.perf_counter()
+
     main()
+
+    end_time = time.perf_counter()
+    print(f"Total Time Used: {end_time - start_time:.2f} Seconds")
+
