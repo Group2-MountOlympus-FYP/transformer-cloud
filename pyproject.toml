@@ -15,4 +15,5 @@ dependencies = [
     "torchaudio>=2.7.0",
     "torchvision>=0.22.0",
     "transformers>=4.51.3",
+    "accelerate>=0.26.0",
 ]
