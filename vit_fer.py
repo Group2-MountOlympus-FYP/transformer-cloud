@@ -1,4 +1,5 @@
 import os
+import time
 import numpy as np
 import pandas as pd
 import pickle
@@ -115,7 +116,9 @@ def plot_confusion_matrix(y_true, y_pred):
     sns.heatmap(cm, annot=True, fmt="d", linewidths=.5, xticklabels=STRING_LABELS, yticklabels=STRING_LABELS)
     plt.xlabel("Predicted")
     plt.ylabel("True")
-    plt.show()
+    timestamp = time.strftime("%Y%m&d%H%M%S")
+    plt.savefig(f"confusion_matrix_{timestamp}.png")
+    plt.close()
 
 
 def main():
@@ -187,7 +190,6 @@ def main():
 
 
 if __name__ == "__main__":
-    import time
     start_time = time.perf_counter()
 
     main()
