@@ -1,4 +1,4 @@
-# Vision transformer Performance Optimization
+# Vision Transformer Performance Optimization
 
 COMP3006J Cloud Computing Project.
 

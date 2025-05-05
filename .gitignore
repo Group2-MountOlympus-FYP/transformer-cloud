@@ -174,5 +174,7 @@ cython_debug/
 .pypirc
 
 fer2013/*
+model/*
+vit-fer/*
 
 *.pickle
