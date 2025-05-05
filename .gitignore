@@ -178,3 +178,5 @@ model/*
 vit-fer/*
 
 *.pickle
+
+.DS_Store
