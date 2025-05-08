@@ -136,8 +136,17 @@ def plot_confusion_matrix(y_true, y_pred):
     plt.savefig(f"confusion_matrix_{timestamp}.png")
     plt.close()
 
+import argparse
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--local_rank", type=int, default=0)
+    return parser.parse_args()
+
 
 def main():
+    args = parse_args()
+    DEVICE = torch.device(f"cuda:{args.local_rank}" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {DEVICE}")
     feature_extractor = ViTImageProcessor.from_pretrained(MODEL_NAME)
     df = pd.read_csv(DATA_PATH)
 
