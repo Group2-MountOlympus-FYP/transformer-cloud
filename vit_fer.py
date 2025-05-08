@@ -7,7 +7,8 @@ import torch
 import torch.nn as nn
 from matplotlib import pyplot as plt
 import seaborn as sns
-from sklearn.metrics import confusion_matrix
+from sklearn.metrics import confusion_matrix, accuracy_score
+import requests
 
 from datasets import Dataset, Features, ClassLabel, Array3D
 from transformers import ViTImageProcessor, ViTModel, TrainingArguments, Trainer
@@ -102,12 +103,27 @@ class ViTForImageClassificationWithCNN(nn.Module):
         return SequenceClassifierOutput(loss=loss, logits=logits, hidden_states=outputs.hidden_states, attentions=outputs.attentions)
 
 
+def check_hf_hub_access():
+    try:
+        response = requests.get("https://huggingface.co", timeout=5)
+        return response.status_code == 200
+    except:
+        return False
 
 
 def compute_metrics(eval_pred):
     predictions, labels = eval_pred
     predictions = np.argmax(predictions, axis=1)
-    return load(METRIC_NAME).compute(predictions=predictions, references=labels)
+
+    if check_hf_hub_access():
+        try:
+            return load(METRIC_NAME).compute(predictions=predictions, references=labels)
+        except:
+            print("Warning: Failed to load metric from Hugging Face Hub, falling back to sklearn.metrics")
+            return {"accuracy": accuracy_score(labels, predictions)}
+    else:
+        print("Warning: Hugging Face Hub is not accessible, using sklearn.metrics")
+        return {"accuracy": accuracy_score(labels, predictions)}
 
 
 def plot_confusion_matrix(y_true, y_pred):
