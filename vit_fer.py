@@ -21,7 +21,7 @@ DEVICE = torch.device("mps" if torch.backends.mps.is_available() else "cuda" if 
 print(f"Using device: {DEVICE}")
 
 # Constants
-DATA_PATH = "./fer2013/fer2013.csv"
+DATA_PATH = os.environ.get("PAI_INPUT_TRAIN_DATA", "./fer2013/fer2013.csv")
 STRING_LABELS = ['Anger', 'Disgust', 'Fear', 'Happiness', 'Sadness', 'Surprise', 'Neutral']
 MODEL_NAME = 'google/vit-base-patch16-224-in21k'
 NUM_LABELS = len(STRING_LABELS)
