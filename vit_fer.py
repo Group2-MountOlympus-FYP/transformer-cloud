@@ -144,9 +144,8 @@ def plot_confusion_matrix(y_true, y_pred):
     sns.heatmap(cm, annot=True, fmt="d", linewidths=.5, xticklabels=STRING_LABELS, yticklabels=STRING_LABELS)
     plt.xlabel("Predicted")
     plt.ylabel("True")
-    timestamp = time.strftime("%Y%m&d%H%M%S")
-    plt.savefig(f"confusion_matrix_{timestamp}.png")
-    plt.close()
+    # Skipping saving confusion matrix to avoid disk writes
+    plt.show()
 
 import argparse
 def parse_args():
@@ -176,37 +175,30 @@ def main():
         'pixel_values': Array3D(dtype="float32", shape=(3, 224, 224)),
     })
 
-    # Preprocess and save datasets (only needed once)
+    # Preprocess datasets without saving to disk
     for name, ds in [('train', train_ds), ('val', val_ds), ('test', test_ds)]:
-        if not os.path.exists(f'preprocessed_{name}_ds.pickle'):
-            print(f"Preprocessing {name} dataset...")
-            preprocessed_ds = ds.map(lambda x: preprocess_images(x, feature_extractor), batched=True, features=features)
-            with open(f'preprocessed_{name}_ds.pickle', 'wb') as handle:
-                pickle.dump(preprocessed_ds, handle, protocol=pickle.HIGHEST_PROTOCOL)
-
-    # Load preprocessed datasets from pickle
-    with open('preprocessed_train_ds.pickle', 'rb') as handle:
-        train_ds = pickle.load(handle)
-    with open('preprocessed_val_ds.pickle', 'rb') as handle:
-        val_ds = pickle.load(handle)
-    with open('preprocessed_test_ds.pickle', 'rb') as handle:
-        test_ds = pickle.load(handle)
+        print(f"Preprocessing {name} dataset in-memory...")
+        ds = ds.map(lambda x: preprocess_images(x, feature_extractor), batched=True, features=features)
+        if name == 'train':
+            train_ds = ds
+        elif name == 'val':
+            val_ds = ds
+        else:
+            test_ds = ds
 
     model = ViTForImageClassificationWithCNN().to(DEVICE)
 
     training_args = TrainingArguments(
         "vit-fer",
-        eval_strategy="epoch",
-        save_strategy="epoch",
+        save_strategy="no",
+        evaluation_strategy="no",
         learning_rate=2e-5,
         per_device_train_batch_size=8,
         per_device_eval_batch_size=8,
         num_train_epochs=6,
         weight_decay=0.01,
-        load_best_model_at_end=True,
-        metric_for_best_model=METRIC_NAME,
-        logging_dir='logs',
-        dataloader_pin_memory=False,  # Add this to suppress MPS warning
+        logging_dir='logs',                # Logging still in memory/show stdout
+        dataloader_pin_memory=False,       # Suppress MPS warning
     )
 
     os.environ["WANDB_DISABLED"] = "true"
@@ -223,7 +215,7 @@ def main():
     y_true = outputs.label_ids
     y_pred = outputs.predictions.argmax(1)
     plot_confusion_matrix(y_true, y_pred)
-    trainer.save_model("model")
+    # trainer.save_model("model")
 
 
 if __name__ == "__main__":
@@ -233,4 +225,3 @@ if __name__ == "__main__":
 
     end_time = time.perf_counter()
     print(f"Total Time Used: {end_time - start_time:.2f} Seconds")
-
