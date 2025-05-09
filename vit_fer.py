@@ -144,7 +144,6 @@ def plot_confusion_matrix(y_true, y_pred):
     sns.heatmap(cm, annot=True, fmt="d", linewidths=.5, xticklabels=STRING_LABELS, yticklabels=STRING_LABELS)
     plt.xlabel("Predicted")
     plt.ylabel("True")
-    # Skipping saving confusion matrix to avoid disk writes
     plt.show()
 
 import argparse
@@ -175,7 +174,7 @@ def main():
         'pixel_values': Array3D(dtype="float32", shape=(3, 224, 224)),
     })
 
-    # Preprocess datasets without saving to disk
+    # Preprocess datasets in-memory without saving
     for name, ds in [('train', train_ds), ('val', val_ds), ('test', test_ds)]:
         print(f"Preprocessing {name} dataset in-memory...")
         ds = ds.map(lambda x: preprocess_images(x, feature_extractor), batched=True, features=features)
@@ -190,15 +189,15 @@ def main():
 
     training_args = TrainingArguments(
         "vit-fer",
-        save_strategy="no",
-        evaluation_strategy="no",
+        save_strategy="no",           # Disable checkpoint saving
+        evaluation_strategy="no",     # Disable automatic evaluation
+        logging_strategy="no",        # Disable logging
         learning_rate=2e-5,
         per_device_train_batch_size=8,
         per_device_eval_batch_size=8,
         num_train_epochs=6,
         weight_decay=0.01,
-        logging_dir='logs',                # Logging still in memory/show stdout
-        dataloader_pin_memory=False,       # Suppress MPS warning
+        dataloader_pin_memory=False,   # Suppress MPS warning
     )
 
     os.environ["WANDB_DISABLED"] = "true"
@@ -215,7 +214,7 @@ def main():
     y_true = outputs.label_ids
     y_pred = outputs.predictions.argmax(1)
     plot_confusion_matrix(y_true, y_pred)
-    # trainer.save_model("model")
+    trainer.save_model("model")
 
 
 if __name__ == "__main__":
