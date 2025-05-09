@@ -22,6 +22,18 @@ print(f"Using device: {DEVICE}")
 
 # Constants
 DATA_PATH = os.environ.get("PAI_INPUT_TRAIN_DATA", "/mnt/data/fer2013.csv")
+import urllib.request
+
+# 如果目标文件不存在，自动从 OSS 下载
+if not os.path.exists(DATA_PATH):
+    print(f"[INFO] {DATA_PATH} not found. Downloading from OSS...")
+    os.makedirs(os.path.dirname(DATA_PATH), exist_ok=True)
+    urllib.request.urlretrieve(
+        "https://oss-pai-gf7m7owj8p97c6nx38-cn-shanghai.oss-cn-shanghai.aliyuncs.com/fer2013/fer2013.csv",
+        DATA_PATH
+    )
+    print(f"[INFO] Downloaded to {DATA_PATH}")
+
 STRING_LABELS = ['Anger', 'Disgust', 'Fear', 'Happiness', 'Sadness', 'Surprise', 'Neutral']
 MODEL_NAME = 'google/vit-base-patch16-224-in21k'
 NUM_LABELS = len(STRING_LABELS)
