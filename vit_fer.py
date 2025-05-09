@@ -9,16 +9,16 @@ from matplotlib import pyplot as plt
 import seaborn as sns
 from sklearn.metrics import confusion_matrix, accuracy_score
 import requests
+import shutil
 
 from datasets import Dataset, Features, ClassLabel, Array3D
 from transformers import ViTImageProcessor, ViTModel, TrainingArguments, Trainer
 from transformers.modeling_outputs import SequenceClassifierOutput
 from evaluate import load
 
-
 # Detect device: mps (Apple GPU) → cuda (NVIDIA) → cpu (fallback)
 DEVICE = torch.device("mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu")
-print(f"Using device: {DEVICE}")
+print(f"[DEBUG] Using device: {DEVICE}")
 
 # Constants
 DATA_PATH = os.environ.get("PAI_INPUT_TRAIN_DATA", "/mnt/data/fer2013.csv")
@@ -26,13 +26,18 @@ import urllib.request
 
 # 如果目标文件不存在，自动从 OSS 下载
 if not os.path.exists(DATA_PATH):
-    print(f"[INFO] {DATA_PATH} not found. Downloading from OSS...")
+    print(f"[DEBUG] {DATA_PATH} not found. Downloading from OSS...")
     os.makedirs(os.path.dirname(DATA_PATH), exist_ok=True)
     urllib.request.urlretrieve(
         "https://oss-pai-gf7m7owj8p97c6nx38-cn-shanghai.oss-cn-shanghai.aliyuncs.com/fer2013/fer2013.csv",
         DATA_PATH
     )
-    print(f"[INFO] Downloaded to {DATA_PATH}")
+    print(f"[DEBUG] Downloaded to {DATA_PATH}")
+
+# Function to check disk usage for debugging
+def print_disk_usage(path="."):
+    total, used, free = shutil.disk_usage(path)
+    print(f"[DEBUG] Disk usage for {path} - Total: {total//2**30}GiB, Used: {used//2**30}GiB, Free: {free//2**30}GiB")
 
 STRING_LABELS = ['Anger', 'Disgust', 'Fear', 'Happiness', 'Sadness', 'Surprise', 'Neutral']
 MODEL_NAME = 'google/vit-base-patch16-224-in21k'
@@ -51,6 +56,7 @@ def prepare_fer_data(data):
 
 
 def preprocess_images(examples, feature_extractor):
+    print(f"[DEBUG] Preprocessing batch of size {len(examples['img'])}")
     images = [np.moveaxis(np.array(img, dtype=np.uint8), -1, 0) for img in examples['img']]
     inputs = feature_extractor(images=images)
     examples['pixel_values'] = inputs['pixel_values']
@@ -96,7 +102,9 @@ class ViTForImageClassificationWithCNN(nn.Module):
     def __init__(self, num_labels=NUM_LABELS):
         super().__init__()
         self.cnn = CNNFeatureExtractorImproved(input_channels=3, output_channels=3)
+        print("[DEBUG] Loading ViT model...")
         self.vit = ViTModel.from_pretrained(MODEL_NAME)
+        print("[DEBUG] ViT model loaded.")
         self.dropout = nn.Dropout(0.1)
         self.classifier = nn.Linear(self.vit.config.hidden_size, num_labels)
         self.num_labels = num_labels
@@ -154,19 +162,23 @@ def parse_args():
 
 
 def main():
+    print_disk_usage()
     args = parse_args()
     DEVICE = torch.device(f"cuda:{args.local_rank}" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {DEVICE}")
+    print(f"[DEBUG] Using device in main: {DEVICE}")
     feature_extractor = ViTImageProcessor.from_pretrained(MODEL_NAME)
     df = pd.read_csv(DATA_PATH)
+    print("[DEBUG] Dataset loaded into DataFrame")
 
     train_df = prepare_fer_data(df[df['Usage'] == 'Training'])
     val_df = prepare_fer_data(df[df['Usage'] == 'PublicTest'])
     test_df = prepare_fer_data(df[df['Usage'] == 'PrivateTest'])
+    print("[DEBUG] Raw DataFrames prepared")
 
     train_ds = Dataset.from_pandas(train_df).train_test_split(test_size=0.15)['train']
     val_ds = Dataset.from_pandas(val_df)
     test_ds = Dataset.from_pandas(test_df)
+    print("[DEBUG] HuggingFace Datasets created")
 
     features = Features({
         'label': ClassLabel(names=STRING_LABELS),
@@ -176,8 +188,9 @@ def main():
 
     # Preprocess datasets in-memory without saving
     for name, ds in [('train', train_ds), ('val', val_ds), ('test', test_ds)]:
-        print(f"Preprocessing {name} dataset in-memory...")
+        print(f"[DEBUG] Starting preprocessing of {name} dataset")
         ds = ds.map(lambda x: preprocess_images(x, feature_extractor), batched=True, features=features)
+        print(f"[DEBUG] Finished preprocessing of {name} dataset")
         if name == 'train':
             train_ds = ds
         elif name == 'val':
@@ -185,7 +198,9 @@ def main():
         else:
             test_ds = ds
 
+    print("[DEBUG] Initializing model")
     model = ViTForImageClassificationWithCNN().to(DEVICE)
+    print("[DEBUG] Model initialization complete")
 
     training_args = TrainingArguments(
         "vit-fer",
@@ -209,18 +224,22 @@ def main():
         compute_metrics=compute_metrics,
     )
 
+    print("[DEBUG] Starting training")
     trainer.train()
+    print("[DEBUG] Training completed")
+
+    print_disk_usage()
+    print("[DEBUG] Starting prediction")
     outputs = trainer.predict(test_ds)
+    print("[DEBUG] Prediction completed")
+
     y_true = outputs.label_ids
     y_pred = outputs.predictions.argmax(1)
     plot_confusion_matrix(y_true, y_pred)
-    trainer.save_model("model")
 
 
 if __name__ == "__main__":
     start_time = time.perf_counter()
-
     main()
-
     end_time = time.perf_counter()
-    print(f"Total Time Used: {end_time - start_time:.2f} Seconds")
+    print(f"[DEBUG] Total Time Used: {end_time - start_time:.2f} Seconds")
