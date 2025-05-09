@@ -1,4 +1,4 @@
-datasets==1.18.4
+datasets==2.4.0
 evaluate==0.4.3
 fsspec==2023.6.0
 matplotlib==3.7.3
