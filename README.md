@@ -6,8 +6,6 @@ This project aims to conduct a performance analysis and optimization for the tra
 
 ## Project Deployment
 
-### Run the project locally
-
 0. This project requires the `uv` package manager to manage its dependencies. 
 1. Move to the project directory and run the following command to sync the dependencis.
     ```shell
